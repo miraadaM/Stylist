@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LifeFit AI | Occasion Stylist</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar" aria-label="Application header">
+        <a class="brand" href="#top" aria-label="LifeFit AI home">
+          <span class="brand-mark" aria-hidden="true">L</span>
+          <span>LifeFit AI</span>
+        </a>
+        <nav class="topnav" aria-label="Primary navigation">
+          <a href="#stylist">Stylist</a>
+          <a href="#color-guide">Colors</a>
+          <a href="#saved">Saved</a>
+        </nav>
+      </header>
+
+      <main id="top">
+        <section class="hero" aria-label="Welcome">
+          <div class="hero-copy">
+            <div class="welcome-text">Welcome</div>
+            <h1>Find your style</h1>
+            <p>Turn every plan into a look that feels like you.</p>
+            <a class="hero-action" href="#stylist">Start</a>
+          </div>
+        </section>
+
+        <section class="workspace" id="stylist" aria-label="AI stylist workspace">
+          <div class="intake-panel">
+            <div class="section-kicker">Occasion Stylist</div>
+            <h2 class="panel-title">Your wardrobe, your next chapter.</h2>
+            <p class="panel-intro">Tell LifeFit where you are going, what you own, or what you want to try. It turns the mood into a complete look.</p>
+
+            <div class="mode-toggle" role="tablist" aria-label="Outfit source">
+              <button class="mode-button active" type="button" role="tab" aria-selected="true" data-mode="closet">
+                My closet
+              </button>
+              <button class="mode-button" type="button" role="tab" aria-selected="false" data-mode="stores">
+                Stores
+              </button>
+              <button class="mode-button" type="button" role="tab" aria-selected="false" data-mode="colors">
+                Colors
+              </button>
+              <button class="mode-button" type="button" role="tab" aria-selected="false" data-mode="tryon">
+                Try on me
+              </button>
+            </div>
+
+            <form id="stylistForm" class="stylist-form">
+              <label class="field">
+                <span>Occasion</span>
+                <textarea
+                  id="occasion"
+                  rows="3"
+                  placeholder="Outdoor birthday dinner, internship first day, wedding guest..."
+                  required
+                >Birthday dinner with friends, polished but comfortable</textarea>
+              </label>
+
+              <label class="field">
+                <span>Pinterest link</span>
+                <input
+                  id="pinterest"
+                  type="url"
+                  placeholder="https://pin.it/..."
+                />
+              </label>
+
+              <div class="form-grid">
+                <label class="field">
+                  <span>Aesthetic</span>
+                  <input id="aesthetic" type="text" value="clean feminine, soft minimalist" />
+                </label>
+                <label class="field">
+                  <span>Weather or setting</span>
+                  <input id="setting" type="text" value="warm evening, restaurant patio" />
+                </label>
+              </div>
+
+              <section class="mode-fields active" id="closetFields" data-mode-panel="closet">
+                <label class="field">
+                  <span>Clothes you own</span>
+                  <textarea
+                    id="closetItems"
+                    rows="5"
+                    placeholder="black blazer, white tank, straight jeans, silver hoops, loafers..."
+                  >black satin skirt, white fitted tee, cream cardigan, nude flats, small gold hoops, beige shoulder bag</textarea>
+                </label>
+                <label class="field file-field">
+                  <span>Wardrobe photos</span>
+                  <input id="wardrobePhotos" type="file" accept="image/*" multiple />
+                </label>
+              </section>
+
+              <section class="mode-fields" id="colorFields" data-mode-panel="colors">
+                <div class="form-grid">
+                  <label class="field">
+                    <span>Skin undertone</span>
+                    <select id="skinUndertone">
+                      <option value="neutral">Not sure / neutral</option>
+                      <option value="warm">Warm or golden</option>
+                      <option value="cool">Cool or rosy</option>
+                      <option value="olive">Olive</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Face contrast</span>
+                    <select id="colorContrast">
+                      <option value="medium">Medium</option>
+                      <option value="low">Soft / low</option>
+                      <option value="high">High</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="form-grid">
+                  <label class="field">
+                    <span>Hair depth</span>
+                    <select id="hairDepth">
+                      <option value="medium">Medium brown / mixed</option>
+                      <option value="light">Blonde / light brown</option>
+                      <option value="dark">Dark brown / black</option>
+                      <option value="red">Red / copper</option>
+                      <option value="gray">Gray / silver</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Best jewelry</span>
+                    <select id="metalPreference">
+                      <option value="both">Both look okay</option>
+                      <option value="gold">Gold looks better</option>
+                      <option value="silver">Silver looks better</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="field">
+                  <span>Colors you already love</span>
+                  <input id="favoriteColors" type="text" value="cream, sage, chocolate brown" />
+                </label>
+              </section>
+
+              <section class="mode-fields" id="storeFields" data-mode-panel="stores">
+                <div class="form-grid">
+                  <label class="field">
+                    <span>Budget</span>
+                    <input id="budget" type="number" min="40" max="5000" step="10" value="160" />
+                  </label>
+                  <label class="field">
+                    <span>Stores</span>
+                    <input id="stores" type="text" value="Zara, H&M, Uniqlo, ASOS" />
+                  </label>
+                </div>
+                <label class="field">
+                  <span>Sizes or limits</span>
+                  <input id="limits" type="text" value="avoid heels, keep it comfortable" />
+                </label>
+              </section>
+
+              <section class="mode-fields" id="tryOnFields" data-mode-panel="tryon">
+                <label class="field file-field">
+                  <span>Full-length photo</span>
+                  <input id="tryOnPhoto" type="file" accept="image/*" />
+                </label>
+                <label class="field file-field">
+                  <span>Clothes to try on</span>
+                  <input id="tryOnClothes" type="file" accept="image/*" multiple />
+                </label>
+                <label class="field">
+                  <span>Try-on notes</span>
+                  <input id="tryOnNotes" type="text" value="show a realistic front-view outfit preview" />
+                </label>
+              </section>
+
+              <div class="actions">
+                <button class="primary-action" type="submit">Generate outfit</button>
+                <button class="secondary-action" type="button" id="resetBtn">Reset</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="results-panel" aria-live="polite">
+            <div class="visual-band">
+              <img src="./assets/style-board.png" alt="Fashion outfit planning board with clothing, swatches, tags, and accessories" />
+              <div class="visual-copy">
+                <p id="sourceLabel">From your closet</p>
+                <strong id="momentLabel">Birthday dinner</strong>
+              </div>
+            </div>
+
+            <section class="outfit-board" aria-label="Generated outfit result">
+              <div class="board-head">
+                <div>
+                  <div class="section-kicker">Generated Look</div>
+                  <h2 id="lookTitle">Soft Closet Dinner Look</h2>
+                </div>
+                <button class="save-action" id="saveLook" type="button">Save</button>
+              </div>
+
+              <div class="summary-row" aria-label="Outfit summary">
+                <div>
+                  <span>Source</span>
+                  <strong id="sourceMetric">Closet</strong>
+                </div>
+                <div>
+                  <span>Pieces</span>
+                  <strong id="pieceCount">5</strong>
+                </div>
+                <div>
+                  <span>Spend</span>
+                  <strong id="spendMetric">$0</strong>
+                </div>
+              </div>
+
+              <div class="alerts-list" id="alertsList" aria-live="polite"></div>
+
+              <div class="items-grid" id="itemsGrid"></div>
+
+              <div class="reasoning-grid">
+                <article>
+                  <h3>Styling logic</h3>
+                  <p id="whyText"></p>
+                </article>
+                <article>
+                  <h3>Next step</h3>
+                  <p id="nextStepText"></p>
+                </article>
+              </div>
+
+              <div class="variant-controls" aria-label="Regenerate controls">
+                <button type="button" data-variant="casual">More casual</button>
+                <button type="button" data-variant="dressy">More dressy</button>
+                <button type="button" data-variant="comfort">More comfortable</button>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="saved-section color-guide" id="color-guide" aria-label="Color analysis guide">
+          <div class="saved-head">
+            <div>
+              <div class="section-kicker">Color Theory</div>
+              <h2>Palette rules</h2>
+            </div>
+            <span>No paid API</span>
+          </div>
+          <div class="guide-copy">
+            <p>The Colors mode uses undertone, contrast, hair depth, and metal preference to estimate a seasonal palette. It is a practical styling rule system, not a medical or biometric skin analysis.</p>
+          </div>
+        </section>
+
+        <section class="saved-section" id="saved" aria-label="Saved outfits">
+          <div class="saved-head">
+            <div>
+              <div class="section-kicker">Saved Looks</div>
+              <h2>Outfit plans</h2>
+            </div>
+            <span id="savedCount">0 saved</span>
+          </div>
+          <div class="saved-grid" id="savedGrid">
+            <p class="empty-state">Saved outfits will appear here.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

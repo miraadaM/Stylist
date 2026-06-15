@@ -1,0 +1,16 @@
+{
+  "name": "lifefit-ai",
+  "version": "1.0.0",
+  "description": "AI occasion stylist prototype with closet outfits, store search, color theory, and try-on upload flow.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "keywords": [
+    "ai-stylist",
+    "fashion",
+    "color-theory",
+    "portfolio"
+  ],
+  "license": "MIT"
+}
