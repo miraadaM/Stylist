@@ -2,7 +2,7 @@
 
 AI occasion stylist prototype for generating outfits from a user's closet, online stores, color theory, and virtual try-on inputs.
 
-![LifeFit AI preview](assets/style-board.png)
+
 
 ## Features
 
@@ -16,41 +16,6 @@ AI occasion stylist prototype for generating outfits from a user's closet, onlin
 
 ```bash
 npm start
-```
-
-or:
-
-```bash
-node server.mjs
-```
-
-Open:
-
-```text
-http://localhost:8765/
-```
-
-## Environment Variables
-
-Copy `.env.example` to `.env` and add only the keys you want to test.
-
-```bash
-cp .env.example .env
-```
-
-The app still works without API keys, but API-backed features will use fallback output.
-
-```env
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-3.5-flash
-GEMINI_TIMEOUT_MS=12000
-
-SERPAPI_KEY=
-
-PHOTTA_API_URL=
-PHOTTA_API_KEY=
-
-PORT=8765
 ```
 
 
