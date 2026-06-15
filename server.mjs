@@ -734,6 +734,139 @@ function extractGeminiText(data) {
     .trim();
 }
 
+function dataUrlToGeminiPart(dataUrl = "") {
+  const match = String(dataUrl).match(/^data:([^;,]+);base64,(.+)$/);
+  if (!match) return null;
+  const [, mimeType, data] = match;
+  if (!mimeType.startsWith("image/")) return null;
+  return {
+    inline_data: {
+      mime_type: mimeType,
+      data,
+    },
+  };
+}
+
+function shapeFromCategory(category = "", name = "") {
+  const normalized = category.toLowerCase();
+  if (normalized.includes("shoe")) return "shoes";
+  if (normalized.includes("accessor") || normalized.includes("bag") || normalized.includes("jewel")) return "accessory";
+  if (normalized.includes("layer") || normalized.includes("jacket") || normalized.includes("coat") || normalized.includes("cardigan")) return "layer";
+  if (normalized.includes("bottom") || normalized.includes("skirt") || normalized.includes("pant") || normalized.includes("jean") || normalized.includes("short")) return "bottom";
+  return shapeForLabel(name);
+}
+
+function normalizeAiClosetItems(rawItems = []) {
+  const items = Array.isArray(rawItems) ? rawItems : [];
+  return items
+    .slice(0, 6)
+    .map((item, index) => {
+      const category = item.category || item.label || "Owned";
+      const name = item.name || item.item || item.description || `${titleCase(category)} Piece`;
+      return {
+        label: titleCase(category),
+        name: titleCase(name),
+        detail: item.detail || item.reason || item.role || "AI selected",
+        actionText: "AI selected",
+        price: 0,
+        link: "",
+        shape: shapeFromCategory(category, name),
+        color: ["#b9895e", "#0f766e", "#d2604d", "#343a3f", "#bd8427", "#78917f"][index % 6],
+        artBg: ["#efe3d6", "#edf4f2", "#f4ded8", "#f1f1ee", "#f5ead7", "#e8eee9"][index % 6],
+      };
+    });
+}
+
+function mergeAiClosetPlan(basePlan, aiPlan) {
+  const items = normalizeAiClosetItems(aiPlan.items);
+  if (!items.length) return null;
+  return {
+    ...basePlan,
+    provider: "gemini-closet",
+    title: aiPlan.title || basePlan.title,
+    source: "AI closet",
+    spend: "$0",
+    items,
+    why: aiPlan.why || basePlan.why,
+    next: aiPlan.next || basePlan.next,
+    alerts: Array.isArray(aiPlan.alerts) ? aiPlan.alerts : [],
+    diagnostics: {
+      ...(basePlan.diagnostics || {}),
+      gemini: {
+        ok: true,
+        model: geminiModel,
+        status: "CONNECTED",
+        role: "closet-selection",
+      },
+    },
+  };
+}
+
+async function callGeminiClosetStylist(payload, basePlan) {
+  if (!process.env.GEMINI_API_KEY || payload.mode !== "closet") return null;
+  const imageParts = (payload.wardrobeImages || [])
+    .map(dataUrlToGeminiPart)
+    .filter(Boolean)
+    .slice(0, 8);
+
+  const userText = {
+    occasion: payload.occasion,
+    aesthetic: payload.aesthetic,
+    setting: payload.setting,
+    pinterest: payload.pinterest,
+    closetItems: cleanList(payload.closetItems),
+    uploadedWardrobeImageCount: imageParts.length,
+    fallbackDraft: basePlan,
+  };
+
+  const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`, {
+    method: "POST",
+    headers: {
+      "x-goog-api-key": process.env.GEMINI_API_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      system_instruction: {
+        parts: [
+          {
+            text: [
+              "You are an AI closet stylist. Choose a balanced outfit from the user's typed closet items and uploaded wardrobe photos.",
+              "Detect garment categories from images when possible. Select at most one main top, one bottom or one dress/jumpsuit, one pair of shoes, and optional layer/accessory.",
+              "If the user gives many tops and one skirt, choose the one top that best matches the skirt, occasion, aesthetic, weather, and balance.",
+              "Do not include duplicate categories unless it is an intentional layer/accessory. Do not include pajamas/sleepwear unless the occasion asks for it.",
+              "If a required category is missing, add an alert instead of inventing owned items.",
+              "Return only valid JSON with keys: title, items, why, next, alerts.",
+              "items must be an array of objects with category, name, detail, reason.",
+            ].join(" "),
+          },
+        ],
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: JSON.stringify(userText) },
+            ...imageParts,
+          ],
+        },
+      ],
+      generationConfig: {
+        responseMimeType: "application/json",
+        maxOutputTokens: 1200,
+        thinkingConfig: { thinkingLevel: "low" },
+      },
+    }),
+  }, Math.max(geminiTimeoutMs, 18_000));
+
+  if (!response.ok) {
+    throw providerError("Gemini closet request failed", await geminiErrorFromResponse(response));
+  }
+
+  const data = await response.json();
+  const text = extractGeminiText(data);
+  return text ? JSON.parse(text) : null;
+}
+
 function readGeminiErrorBody(statusCode, text = "") {
   let parsed = null;
   try {
@@ -998,7 +1131,30 @@ async function createOutfitPlan(payload) {
   plan = await callTryOnProvider(payload, plan);
 
   let aiCopy = null;
-  const shouldPolishCopy = !(plan.mode === "closet" && plan.alerts?.length) && plan.mode !== "colors";
+  if (payload.mode === "closet") {
+    try {
+      const aiClosetPlan = await callGeminiClosetStylist(payload, plan);
+      const merged = aiClosetPlan ? mergeAiClosetPlan(plan, aiClosetPlan) : null;
+      if (merged) return merged;
+    } catch (error) {
+      plan = {
+        ...plan,
+        diagnostics: {
+          ...(plan.diagnostics || {}),
+          gemini: {
+            ok: false,
+            model: geminiModel,
+            status: error?.providerStatus || error?.name || "REQUEST_FAILED",
+            message: geminiErrorForUser(error),
+            role: "closet-selection",
+          },
+        },
+        next: `${plan.next} AI closet note: ${geminiErrorForUser(error)} Showing local fallback outfit.`,
+      };
+    }
+  }
+
+  const shouldPolishCopy = payload.mode !== "closet" && plan.mode !== "colors";
   if (shouldPolishCopy) {
     try {
       aiCopy = await callGemini(payload, plan);

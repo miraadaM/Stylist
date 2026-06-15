@@ -591,6 +591,14 @@ async function tryOnImagesPayload() {
   };
 }
 
+async function wardrobeImagesPayload() {
+  if (currentMode !== "closet") return {};
+  const wardrobeFiles = Array.from(wardrobePhotosInput.files || []).slice(0, 8);
+  return {
+    wardrobeImages: await Promise.all(wardrobeFiles.map((file) => fileToDataUrl(file))),
+  };
+}
+
 function canUseBackend() {
   return window.location.protocol === "http:" || window.location.protocol === "https:";
 }
@@ -599,6 +607,7 @@ async function requestBackendPlan(variant = "default") {
   if (!canUseBackend()) return null;
   const payload = {
     ...currentInputs(),
+    ...(await wardrobeImagesPayload()),
     ...(await tryOnImagesPayload()),
     variant,
   };
