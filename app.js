@@ -41,8 +41,7 @@ let currentPlan = null;
 let memorySavedLooks = [];
 let pendingRequest = false;
 let publicConfigPromise = null;
-let phottaWidget = null;
-let phottaCompletedHandlerAttached = false;
+let phottaEmbedPromise = null;
 
 const shapes = {
   avatar: { shapeW: "46px", shapeH: "86px", shapeR: "999px 999px 18px 18px" },
@@ -624,31 +623,50 @@ function setTryOnWidgetStatus(message, isError = false) {
   tryOnWidgetStatus.dataset.state = isError ? "error" : "ready";
 }
 
-async function getPhottaWidget() {
+function findPhottaOpenFunction() {
+  const candidates = [
+    window.PhoTryOn,
+    window.PhottaTryOn,
+    window.PhottaWidget,
+    window.Photta,
+    window.photta,
+    window.phoTryOn,
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (typeof candidate.open === "function") return candidate.open.bind(candidate);
+    if (candidate.widget && typeof candidate.widget.open === "function") return candidate.widget.open.bind(candidate.widget);
+  }
+  return null;
+}
+
+async function loadPhottaEmbed() {
   const config = await publicConfig();
   if (!config.phottaWidgetKey) {
     throw new Error("PHOTTA_WIDGET_KEY is missing");
   }
-  if (!phottaWidget) {
-    const module = await import("https://widget.photta.app/v1/sdk.esm.js");
-    const PhoTryOn = module.default || module.PhoTryOn;
-    phottaWidget = new PhoTryOn({ apiKey: config.phottaWidgetKey });
-  }
-  if (!phottaCompletedHandlerAttached && phottaWidget?.on) {
-    phottaWidget.on("completed", (result) => {
-      console.log("Try-on completed:", result);
-      setTryOnWidgetStatus("Try-on completed");
-      if (currentPlan?.mode === "tryon") {
-        currentPlan = {
-          ...currentPlan,
-          next: "Try-on completed in Photta. Check the widget result, then save the look if it works.",
-        };
-        nextStepText.textContent = currentPlan.next;
+
+  if (!phottaEmbedPromise) {
+    phottaEmbedPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector("script[data-photta-widget='true']");
+      if (existing) {
+        resolve(config);
+        return;
       }
+
+      const script = document.createElement("script");
+      script.async = true;
+      script.src = "https://widget.photta.app/v1/embed.js";
+      script.dataset.phottaWidget = "true";
+      script.dataset.apiKey = config.phottaWidgetKey;
+      script.dataset.productType = config.phottaProductType || "apparel";
+      script.addEventListener("load", () => resolve(config), { once: true });
+      script.addEventListener("error", () => reject(new Error("Photta widget script failed to load")), { once: true });
+      document.head.appendChild(script);
     });
-    phottaCompletedHandlerAttached = true;
   }
-  return { widget: phottaWidget, productType: config.phottaProductType || "apparel" };
+
+  return phottaEmbedPromise;
 }
 
 async function openTryOnWidget() {
@@ -656,9 +674,14 @@ async function openTryOnWidget() {
   tryOnWidgetButton.disabled = true;
   setTryOnWidgetStatus("Opening widget...");
   try {
-    const { widget, productType } = await getPhottaWidget();
-    widget.open({ productType });
-    setTryOnWidgetStatus("Widget opened");
+    const config = await loadPhottaEmbed();
+    const openWidget = findPhottaOpenFunction();
+    if (openWidget) {
+      openWidget({ productType: config.phottaProductType || "apparel" });
+      setTryOnWidgetStatus("Widget opened");
+    } else {
+      setTryOnWidgetStatus("Widget loaded. Use the Photta launcher if it appears.");
+    }
   } catch (error) {
     setTryOnWidgetStatus(error.message || "Widget unavailable", true);
   } finally {

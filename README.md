@@ -67,7 +67,7 @@ PHOTTA_WIDGET_KEY=your_pk_live_key
 PHOTTA_PRODUCT_TYPE=apparel
 ```
 
-In the Photta dashboard, add your deployed Render URL as an allowed domain. The app exposes the publishable key through `/api/public-config` and loads the widget SDK only when the user clicks the try-on button.
+In the Photta dashboard, add your deployed Render URL as an allowed domain. The app exposes the publishable key through `/api/public-config` and loads Photta's `embed.js` script only when the user clicks the try-on button.
 
 ## How My Closet Mode Works
 
