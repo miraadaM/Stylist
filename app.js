@@ -640,6 +640,33 @@ function findPhottaOpenFunction() {
   return null;
 }
 
+function hasPhottaFrame() {
+  return Boolean(document.querySelector("iframe[src*='widget.photta.app']"));
+}
+
+function waitForPhottaFrame(timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    if (hasPhottaFrame()) {
+      resolve(true);
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      if (hasPhottaFrame()) {
+        observer.disconnect();
+        window.clearTimeout(timeout);
+        resolve(true);
+      }
+    });
+    const timeout = window.setTimeout(() => {
+      observer.disconnect();
+      resolve(false);
+    }, timeoutMs);
+
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+}
+
 async function loadPhottaEmbed() {
   const config = await publicConfig();
   if (!config.phottaWidgetKey) {
@@ -679,8 +706,10 @@ async function openTryOnWidget() {
     if (openWidget) {
       openWidget({ productType: config.phottaProductType || "apparel" });
       setTryOnWidgetStatus("Widget opened");
+    } else if (await waitForPhottaFrame()) {
+      setTryOnWidgetStatus("Widget opened");
     } else {
-      setTryOnWidgetStatus("Widget loaded. Use the Photta launcher if it appears.");
+      setTryOnWidgetStatus("Widget loaded. Check Photta domain settings if it does not appear.");
     }
   } catch (error) {
     setTryOnWidgetStatus(error.message || "Widget unavailable", true);
