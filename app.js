@@ -18,6 +18,8 @@ const favoriteColorsInput = document.querySelector("#favoriteColors");
 const tryOnPhotoInput = document.querySelector("#tryOnPhoto");
 const tryOnClothesInput = document.querySelector("#tryOnClothes");
 const tryOnNotesInput = document.querySelector("#tryOnNotes");
+const tryOnWidgetButton = document.querySelector("#tryOnWidgetBtn");
+const tryOnWidgetStatus = document.querySelector("#tryOnWidgetStatus");
 const resetButton = document.querySelector("#resetBtn");
 const saveButton = document.querySelector("#saveLook");
 const itemsGrid = document.querySelector("#itemsGrid");
@@ -38,6 +40,9 @@ let currentMode = "closet";
 let currentPlan = null;
 let memorySavedLooks = [];
 let pendingRequest = false;
+let publicConfigPromise = null;
+let phottaWidget = null;
+let phottaCompletedHandlerAttached = false;
 
 const shapes = {
   avatar: { shapeW: "46px", shapeH: "86px", shapeR: "999px 999px 18px 18px" },
@@ -520,9 +525,9 @@ function makeTryOnPlan(variant = "default") {
     },
     {
       label: "Preview",
-      name: `${titleCase(style)} Digital Try-On`,
-      detail: "Mockup",
-      actionText: "API needed",
+      name: `${titleCase(style)} Photta Try-On`,
+      detail: "Widget",
+      actionText: "Open widget",
       shape: "layer",
       color: "#343a3f",
       artBg: "#f1f1ee",
@@ -535,12 +540,12 @@ function makeTryOnPlan(variant = "default") {
     title: `${titleCase(style)} Try-On Preview`,
     moment,
     source: "Try-on",
-    spend: "API",
+    spend: "Widget",
     items: outfitItems,
-    why: `This flow is for the Zara-style feature: the user uploads a full-length photo and one or more clothing photos, then the app would generate a realistic preview of the clothes on their body. For now, this is a portfolio UI state, not real image generation.`,
+    why: "This flow opens the Photta virtual try-on widget from inside the app. The user can try apparel without the app needing to own a custom try-on model.",
     next: photoAdded && clothingCount
-      ? `Ready for a future virtual try-on API. Notes: ${tryOnNotesInput.value || "realistic front-view preview"}.`
-      : "To make this real, connect a virtual try-on model/API that accepts a person image and garment image, then returns a generated try-on image.",
+      ? `Open the Photta widget when ready. Notes: ${tryOnNotesInput.value || "realistic front-view preview"}.`
+      : "Open the Photta widget to complete the try-on flow. Local upload fields stay here as a portfolio UI backup.",
   };
 }
 
@@ -601,6 +606,64 @@ async function wardrobeImagesPayload() {
 
 function canUseBackend() {
   return window.location.protocol === "http:" || window.location.protocol === "https:";
+}
+
+async function publicConfig() {
+  if (!canUseBackend()) return {};
+  if (!publicConfigPromise) {
+    publicConfigPromise = fetch("/api/public-config")
+      .then((response) => (response.ok ? response.json() : {}))
+      .catch(() => ({}));
+  }
+  return publicConfigPromise;
+}
+
+function setTryOnWidgetStatus(message, isError = false) {
+  if (!tryOnWidgetStatus) return;
+  tryOnWidgetStatus.textContent = message;
+  tryOnWidgetStatus.dataset.state = isError ? "error" : "ready";
+}
+
+async function getPhottaWidget() {
+  const config = await publicConfig();
+  if (!config.phottaWidgetKey) {
+    throw new Error("PHOTTA_WIDGET_KEY is missing");
+  }
+  if (!phottaWidget) {
+    const module = await import("https://widget.photta.app/v1/sdk.esm.js");
+    const PhoTryOn = module.default || module.PhoTryOn;
+    phottaWidget = new PhoTryOn({ apiKey: config.phottaWidgetKey });
+  }
+  if (!phottaCompletedHandlerAttached && phottaWidget?.on) {
+    phottaWidget.on("completed", (result) => {
+      console.log("Try-on completed:", result);
+      setTryOnWidgetStatus("Try-on completed");
+      if (currentPlan?.mode === "tryon") {
+        currentPlan = {
+          ...currentPlan,
+          next: "Try-on completed in Photta. Check the widget result, then save the look if it works.",
+        };
+        nextStepText.textContent = currentPlan.next;
+      }
+    });
+    phottaCompletedHandlerAttached = true;
+  }
+  return { widget: phottaWidget, productType: config.phottaProductType || "apparel" };
+}
+
+async function openTryOnWidget() {
+  if (!tryOnWidgetButton) return;
+  tryOnWidgetButton.disabled = true;
+  setTryOnWidgetStatus("Opening widget...");
+  try {
+    const { widget, productType } = await getPhottaWidget();
+    widget.open({ productType });
+    setTryOnWidgetStatus("Widget opened");
+  } catch (error) {
+    setTryOnWidgetStatus(error.message || "Widget unavailable", true);
+  } finally {
+    tryOnWidgetButton.disabled = false;
+  }
 }
 
 async function requestBackendPlan(variant = "default") {
@@ -770,6 +833,10 @@ saveButton.addEventListener("click", () => {
 });
 
 resetButton.addEventListener("click", resetForm);
+tryOnWidgetButton?.addEventListener("click", openTryOnWidget);
 
 renderPlan(makePlan());
 renderSaved();
+publicConfig().then((config) => {
+  setTryOnWidgetStatus(config.phottaWidgetKey ? "Widget ready" : "Widget key needed", !config.phottaWidgetKey);
+});

@@ -9,7 +9,7 @@ AI occasion stylist prototype for generating outfits from a user's closet, onlin
 - **My closet:** uses Gemini to choose a balanced outfit from typed wardrobe items and uploaded wardrobe photos, with local fallback if the API is unavailable.
 - **Stores:** searches for shoppable outfit pieces with product images, prices, and links when SerpAPI is connected.
 - **Colors:** suggests a personal color palette from undertone, contrast, hair depth, and jewelry preference.
-- **Try on me:** upload UI and backend adapter for a future virtual try-on provider.
+- **Try on me:** opens the Photta virtual try-on widget when a widget key is configured.
 - **Saved looks:** saves generated looks locally in the browser.
 
 ## Run Locally
@@ -41,6 +41,8 @@ GEMINI_TIMEOUT_MS=12000
 
 SERPAPI_KEY=
 
+PHOTTA_WIDGET_KEY=
+PHOTTA_PRODUCT_TYPE=apparel
 PHOTTA_API_URL=
 PHOTTA_API_KEY=
 
@@ -53,8 +55,19 @@ Never commit `.env`. It contains private API keys and is ignored by `.gitignore`
 
 - **Gemini:** AI closet selection from typed wardrobe items and uploaded wardrobe photos, plus optional styling copy in other modes.
 - **SerpAPI:** optional store search, product photos, prices, and links.
-- **Photta or another try-on provider:** optional virtual try-on image generation.
+- **Photta widget:** optional virtual try-on flow loaded from Photta's frontend SDK.
 - **Colors mode:** no API. It uses local color-theory rules.
+
+## Photta Widget Setup
+
+Photta provides a publishable widget key, not a backend URL. Add the key in Render as:
+
+```env
+PHOTTA_WIDGET_KEY=your_pk_live_key
+PHOTTA_PRODUCT_TYPE=apparel
+```
+
+In the Photta dashboard, add your deployed Render URL as an allowed domain. The app exposes the publishable key through `/api/public-config` and loads the widget SDK only when the user clicks the try-on button.
 
 ## How My Closet Mode Works
 

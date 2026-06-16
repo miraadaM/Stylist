@@ -12,6 +12,8 @@ const geminiModel = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const geminiTimeoutMs = Number(process.env.GEMINI_TIMEOUT_MS || 12_000);
 const tryOnApiUrl = process.env.PHOTTA_API_URL || process.env.TRYON_API_URL;
 const tryOnApiKey = process.env.PHOTTA_API_KEY || process.env.TRYON_API_KEY;
+const phottaWidgetKey = process.env.PHOTTA_WIDGET_KEY || process.env.PHOTTA_PUBLIC_KEY || "";
+const phottaProductType = process.env.PHOTTA_PRODUCT_TYPE || "apparel";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -1230,7 +1232,17 @@ const server = createServer(async (req, res) => {
         geminiModel,
         serpapi: Boolean(process.env.SERPAPI_KEY),
         ebay: Boolean(process.env.EBAY_ACCESS_TOKEN),
-        photta: Boolean(tryOnApiUrl),
+        photta: Boolean(tryOnApiUrl || phottaWidgetKey),
+        phottaApi: Boolean(tryOnApiUrl),
+        phottaWidget: Boolean(phottaWidgetKey),
+      });
+      return;
+    }
+
+    if (req.method === "GET" && req.url?.startsWith("/api/public-config")) {
+      json(res, 200, {
+        phottaWidgetKey,
+        phottaProductType,
       });
       return;
     }
