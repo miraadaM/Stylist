@@ -163,6 +163,25 @@ async function saveTryOnProductImage(dataUrl = "", baseUrl = "") {
   return `${baseUrl.replace(/\/$/, "")}/uploads/try-on/${filename}`;
 }
 
+async function verifyPublicImageUrl(url = "") {
+  if (!url) return { ok: false, status: 0 };
+  try {
+    let response = await fetchWithTimeout(url, { method: "HEAD" }, 8_000);
+    if (response.status === 405) response = await fetchWithTimeout(url, { method: "GET" }, 8_000);
+    return {
+      ok: response.ok,
+      status: response.status,
+      contentType: response.headers.get("content-type") || "",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      message: error?.name === "AbortError" ? "timed out" : error?.message || "request failed",
+    };
+  }
+}
+
 function isLocalBaseUrl(baseUrl = "") {
   try {
     const { hostname } = new URL(baseUrl);
@@ -174,6 +193,21 @@ function isLocalBaseUrl(baseUrl = "") {
 
 function isPlaceholderBaseUrl(baseUrl = "") {
   return /your-render-app|example\.com/i.test(baseUrl);
+}
+
+function publicUrlDetails(url = "") {
+  try {
+    const parsed = new URL(url);
+    return {
+      host: parsed.host,
+      path: parsed.pathname,
+    };
+  } catch {
+    return {
+      host: "",
+      path: "",
+    };
+  }
 }
 
 function escapeRegExp(text = "") {
@@ -1174,6 +1208,20 @@ async function callTryOnProvider(payload, plan, context = {}) {
     ...plan,
     alerts: ["The clothing image could not be prepared for Wearo. Upload a PNG, JPG, JPEG, or WebP image."],
   };
+  const productImageCheck = await verifyPublicImageUrl(productImageUrl);
+  if (!productImageCheck.ok) return {
+    ...plan,
+    alerts: [`Wearo needs a public clothing image URL, but the generated URL was not reachable (${productImageCheck.status || productImageCheck.message || "failed"}). Check PUBLIC_BASE_URL and redeploy Render.`],
+    diagnostics: {
+      ...(plan.diagnostics || {}),
+      wearo: {
+        ok: false,
+        stage: "product-image-url",
+        productImageHost: new URL(productImageUrl).host,
+        productImageStatus: productImageCheck.status,
+      },
+    },
+  };
 
   const response = await fetchWithTimeout(wearoApiUrl, {
     method: "POST",
@@ -1193,6 +1241,9 @@ async function callTryOnProvider(payload, plan, context = {}) {
   if (!response.ok) {
     throw providerError(`Wearo try-on failed: ${response.status}${data.error ? ` - ${data.error}` : ""}`, {
       providerStatus: response.status,
+      providerStage: "wearo-api",
+      providerBody: data,
+      productImageHost: new URL(productImageUrl).host,
     });
   }
   const image = data.resultUrl || data.previewImage || data.image || data.image_url || data.output?.[0] || data.result?.image;
@@ -1222,10 +1273,24 @@ async function createOutfitPlan(payload, context = {}) {
     plan = await callTryOnProvider(payload, plan, context);
   } catch (error) {
     if (payload.mode !== "tryon") throw error;
+    const providerStage = error?.providerStage || "tryon";
+    const friendlyMessage = providerStage === "wearo-api"
+      ? `Wearo API rejected the request at ${wearoApiUrl}. Check WEARO_API_URL in Render and confirm the key has Direct API access.`
+      : error.message || "Wearo try-on failed.";
     plan = {
       ...plan,
-      alerts: [...(plan.alerts || []), error.message || "Wearo try-on failed."],
-      next: `${plan.next} Wearo note: ${error.message || "Try-on provider failed."}`,
+      diagnostics: {
+        ...(plan.diagnostics || {}),
+        wearo: {
+          ok: false,
+          stage: providerStage,
+          status: error?.providerStatus || "REQUEST_FAILED",
+          api: publicUrlDetails(wearoApiUrl),
+          productImageHost: error?.productImageHost || "",
+        },
+      },
+      alerts: [...(plan.alerts || []), friendlyMessage],
+      next: `${plan.next} Wearo note: ${friendlyMessage}`,
     };
   }
 
@@ -1331,6 +1396,8 @@ const server = createServer(async (req, res) => {
         ebay: Boolean(process.env.EBAY_ACCESS_TOKEN),
         wearo: Boolean(wearoApiKey),
         tryOnProvider: "wearo",
+        publicBaseUrl: process.env.PUBLIC_BASE_URL || "",
+        wearoApi: publicUrlDetails(wearoApiUrl),
       });
       return;
     }
