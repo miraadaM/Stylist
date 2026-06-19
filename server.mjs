@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -10,10 +10,9 @@ loadEnvFile(join(root, ".env"));
 const port = Number(process.env.PORT || 8765);
 const geminiModel = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const geminiTimeoutMs = Number(process.env.GEMINI_TIMEOUT_MS || 12_000);
-const tryOnApiUrl = process.env.PHOTTA_API_URL || process.env.TRYON_API_URL;
-const tryOnApiKey = process.env.PHOTTA_API_KEY || process.env.TRYON_API_KEY;
-const phottaWidgetKey = process.env.PHOTTA_WIDGET_KEY || process.env.PHOTTA_PUBLIC_KEY || "";
-const phottaProductType = process.env.PHOTTA_PRODUCT_TYPE || "apparel";
+const wearoApiUrl = process.env.WEARO_API_URL || process.env.TRYON_API_URL || "https://api.wearo.io/v1/tryon";
+const wearoApiKey = process.env.WEARO_API_KEY || process.env.TRYON_API_KEY || "";
+const tryOnUploadDir = join(root, "uploads", "try-on");
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -81,8 +80,9 @@ async function readJson(req) {
 }
 
 function scrubSecretText(text = "") {
-  const secret = process.env.GEMINI_API_KEY || "";
-  return secret ? text.replaceAll(secret, "[hidden-api-key]") : text;
+  return [process.env.GEMINI_API_KEY, wearoApiKey]
+    .filter(Boolean)
+    .reduce((cleaned, secret) => cleaned.replaceAll(secret, "[hidden-api-key]"), text);
 }
 
 function providerError(message, details = {}) {
@@ -126,6 +126,50 @@ function cleanList(text = "") {
     .split(/,|\n/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function requestBaseUrl(req) {
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const proto = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto)?.split(",")[0]?.trim();
+  const protocol = proto || (req.socket.encrypted ? "https" : "http");
+  return `${protocol}://${req.headers.host}`;
+}
+
+function dataUrlToImageBuffer(dataUrl = "") {
+  const match = /^data:(image\/(?:png|jpe?g|webp));base64,([a-z0-9+/=]+)$/i.exec(dataUrl.trim());
+  if (!match) return null;
+
+  const extensionByMime = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/webp": "webp",
+  };
+
+  return {
+    mime: match[1].toLowerCase(),
+    extension: extensionByMime[match[1].toLowerCase()] || "jpg",
+    buffer: Buffer.from(match[2], "base64"),
+  };
+}
+
+async function saveTryOnProductImage(dataUrl = "", baseUrl = "") {
+  const image = dataUrlToImageBuffer(dataUrl);
+  if (!image || !baseUrl) return "";
+
+  await mkdir(tryOnUploadDir, { recursive: true });
+  const filename = `${Date.now()}-${randomUUID()}.${image.extension}`;
+  await writeFile(join(tryOnUploadDir, filename), image.buffer);
+  return `${baseUrl.replace(/\/$/, "")}/uploads/try-on/${filename}`;
+}
+
+function isLocalBaseUrl(baseUrl = "") {
+  try {
+    const { hostname } = new URL(baseUrl);
+    return ["localhost", "127.0.0.1", "::1"].includes(hostname);
+  } catch {
+    return false;
+  }
 }
 
 function escapeRegExp(text = "") {
@@ -685,14 +729,14 @@ function fallbackPlan(payload, provider = "demo") {
       title: `${titleCase(style)} Try-On Preview`,
       moment,
       source: "Try-on",
-      spend: provider === "try-on-api" ? "Rendered" : "API",
+      spend: provider === "wearo" ? "Rendered" : "API",
       items: [
         { label: "Person", name: hasPerson ? "Full-Length Photo Added" : "Upload Full-Length Photo", detail: hasPerson ? "Ready" : "Needed", actionText: "Try-on input", shape: "avatar", color: "#0f766e", artBg: "#edf4f2" },
         { label: "Clothes", name: garmentCount ? `${garmentCount} clothing photo${garmentCount === 1 ? "" : "s"}` : "Upload Clothes", detail: garmentCount ? "Ready" : "Needed", actionText: "Garment input", shape: "top", color: "#d2604d", artBg: "#f4ded8" },
-        { label: "Preview", name: provider === "try-on-api" ? "Rendered Try-On Image" : "Digital Try-On Placeholder", detail: provider === "try-on-api" ? "Ready" : "Provider needed", actionText: provider === "try-on-api" ? "Preview ready" : "API needed", shape: "layer", color: "#343a3f", artBg: "#f1f1ee" },
+        { label: "Preview", name: provider === "wearo" ? "Rendered Try-On Image" : "Digital Try-On Placeholder", detail: provider === "wearo" ? "Ready" : "Provider needed", actionText: provider === "wearo" ? "Preview ready" : "Wearo key needed", shape: "layer", color: "#343a3f", artBg: "#f1f1ee" },
       ],
       why: "This mode needs a virtual try-on model that accepts a person photo and garment images, then returns a generated preview.",
-    next: "Set PHOTTA_API_URL and PHOTTA_API_KEY after checking Photta's API docs. Provider response shapes differ, so the adapter may need one small mapping change.",
+      next: "Set WEARO_API_KEY to generate a real try-on image. Wearo also needs the garment image to be reachable from your deployed site, so full API testing works best on Render.",
     };
   }
 
@@ -1098,39 +1142,80 @@ async function enrichStoreItems(plan, payload) {
   };
 }
 
-async function callTryOnProvider(payload, plan) {
-  if (payload.mode !== "tryon" || !tryOnApiUrl || !payload.personImage || !payload.garmentImages?.length) return plan;
-  const response = await fetchWithTimeout(tryOnApiUrl, {
+async function callTryOnProvider(payload, plan, context = {}) {
+  if (payload.mode !== "tryon") return plan;
+  if (!payload.personImage || !payload.garmentImages?.length) return {
+    ...plan,
+    alerts: ["Upload one full-length photo and at least one clothing image before generating a try-on."],
+  };
+  if (!wearoApiKey) return {
+    ...plan,
+    alerts: ["WEARO_API_KEY is missing, so this is still showing the demo try-on plan."],
+  };
+  if (isLocalBaseUrl(context.baseUrl) && !process.env.PUBLIC_BASE_URL) return {
+    ...plan,
+    alerts: ["Wearo needs a public product image URL. Test real try-on from Render or set PUBLIC_BASE_URL to a public tunnel while debugging locally."],
+  };
+
+  const productImageUrl = await saveTryOnProductImage(payload.garmentImages[0], context.baseUrl);
+  if (!productImageUrl) return {
+    ...plan,
+    alerts: ["The clothing image could not be prepared for Wearo. Upload a PNG, JPG, JPEG, or WebP image."],
+  };
+
+  const response = await fetchWithTimeout(wearoApiUrl, {
     method: "POST",
     headers: {
-      Authorization: tryOnApiKey ? `Bearer ${tryOnApiKey}` : "",
       "Content-Type": "application/json",
+      "X-API-Key": wearoApiKey,
+      ...(context.origin ? { Origin: context.origin } : {}),
     },
     body: JSON.stringify({
-      person_image: payload.personImage,
-      garment_images: payload.garmentImages,
-      notes: payload.tryOnNotes,
+      userPhoto: payload.personImage,
+      productImageUrl,
+      clothingType: payload.tryOnNotes || "apparel",
     }),
   }, 30_000);
 
-  if (!response.ok) throw new Error(`Try-on provider failed: ${response.status}`);
-  const data = await response.json();
-  const image = data.previewImage || data.image || data.image_url || data.output?.[0] || data.result?.image;
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw providerError(`Wearo try-on failed: ${response.status}${data.error ? ` - ${data.error}` : ""}`, {
+      providerStatus: response.status,
+    });
+  }
+  const image = data.resultUrl || data.previewImage || data.image || data.image_url || data.output?.[0] || data.result?.image;
   if (!image) return plan;
 
   return {
     ...plan,
-    provider: "try-on-api",
+    provider: "wearo",
     spend: "Rendered",
-    items: plan.items.map((item) => item.label === "Preview" ? { ...item, name: "Rendered Try-On Image", detail: "Ready", actionText: "Preview ready", image } : item),
-    next: "Try-on image returned by provider. Next production step: store the generated image and add consent/privacy controls.",
+    items: plan.items.map((item) => item.label === "Preview" ? {
+      ...item,
+      name: "Rendered Try-On Image",
+      detail: data.creditsRemaining === undefined ? "Ready" : `${data.creditsRemaining} credits left`,
+      actionText: "Preview ready",
+      image,
+      link: image,
+      linkType: "tryon",
+    } : item),
+    next: "Try-on image returned by Wearo. Next production step: add consent copy and automatic cleanup for uploaded photos.",
   };
 }
 
-async function createOutfitPlan(payload) {
+async function createOutfitPlan(payload, context = {}) {
   let plan = fallbackPlan(payload);
   plan = await enrichStoreItems(plan, payload);
-  plan = await callTryOnProvider(payload, plan);
+  try {
+    plan = await callTryOnProvider(payload, plan, context);
+  } catch (error) {
+    if (payload.mode !== "tryon") throw error;
+    plan = {
+      ...plan,
+      alerts: [...(plan.alerts || []), error.message || "Wearo try-on failed."],
+      next: `${plan.next} Wearo note: ${error.message || "Try-on provider failed."}`,
+    };
+  }
 
   let aiCopy = null;
   if (payload.mode === "closet") {
@@ -1156,7 +1241,7 @@ async function createOutfitPlan(payload) {
     }
   }
 
-  const shouldPolishCopy = payload.mode !== "closet" && plan.mode !== "colors";
+  const shouldPolishCopy = payload.mode === "stores";
   if (shouldPolishCopy) {
     try {
       aiCopy = await callGemini(payload, plan);
@@ -1232,17 +1317,8 @@ const server = createServer(async (req, res) => {
         geminiModel,
         serpapi: Boolean(process.env.SERPAPI_KEY),
         ebay: Boolean(process.env.EBAY_ACCESS_TOKEN),
-        photta: Boolean(tryOnApiUrl || phottaWidgetKey),
-        phottaApi: Boolean(tryOnApiUrl),
-        phottaWidget: Boolean(phottaWidgetKey),
-      });
-      return;
-    }
-
-    if (req.method === "GET" && req.url?.startsWith("/api/public-config")) {
-      json(res, 200, {
-        phottaWidgetKey,
-        phottaProductType,
+        wearo: Boolean(wearoApiKey),
+        tryOnProvider: "wearo",
       });
       return;
     }
@@ -1254,14 +1330,20 @@ const server = createServer(async (req, res) => {
 
     if (req.method === "POST" && req.url === "/api/outfit-plan") {
       const payload = await readJson(req);
-      const plan = await createOutfitPlan(payload);
+      const baseUrl = process.env.PUBLIC_BASE_URL || requestBaseUrl(req);
+      const plan = await createOutfitPlan(payload, { baseUrl, origin: process.env.PUBLIC_BASE_URL || baseUrl });
       json(res, 200, plan);
       return;
     }
 
     if (req.method === "POST" && req.url === "/api/try-on") {
       const payload = await readJson(req);
-      const plan = await callTryOnProvider({ ...payload, mode: "tryon" }, fallbackPlan({ ...payload, mode: "tryon" }));
+      const baseUrl = process.env.PUBLIC_BASE_URL || requestBaseUrl(req);
+      const plan = await callTryOnProvider(
+        { ...payload, mode: "tryon" },
+        fallbackPlan({ ...payload, mode: "tryon" }),
+        { baseUrl, origin: process.env.PUBLIC_BASE_URL || baseUrl },
+      );
       json(res, 200, plan);
       return;
     }

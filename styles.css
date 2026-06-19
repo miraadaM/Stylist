@@ -366,32 +366,6 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.48);
 }
 
-.widget-panel {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid rgba(107, 69, 60, 0.18);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.5);
-}
-
-.widget-status {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.86rem;
-  font-weight: 720;
-}
-
-.widget-status[data-state="ready"] {
-  color: #0f766e;
-}
-
-.widget-status[data-state="error"] {
-  color: #a64f32;
-}
-
 .actions {
   display: grid;
   grid-template-columns: minmax(160px, 1fr) auto;

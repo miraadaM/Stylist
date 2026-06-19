@@ -18,8 +18,6 @@ const favoriteColorsInput = document.querySelector("#favoriteColors");
 const tryOnPhotoInput = document.querySelector("#tryOnPhoto");
 const tryOnClothesInput = document.querySelector("#tryOnClothes");
 const tryOnNotesInput = document.querySelector("#tryOnNotes");
-const tryOnWidgetButton = document.querySelector("#tryOnWidgetBtn");
-const tryOnWidgetStatus = document.querySelector("#tryOnWidgetStatus");
 const resetButton = document.querySelector("#resetBtn");
 const saveButton = document.querySelector("#saveLook");
 const itemsGrid = document.querySelector("#itemsGrid");
@@ -40,8 +38,6 @@ let currentMode = "closet";
 let currentPlan = null;
 let memorySavedLooks = [];
 let pendingRequest = false;
-let publicConfigPromise = null;
-let phottaEmbedPromise = null;
 
 const shapes = {
   avatar: { shapeW: "46px", shapeH: "86px", shapeR: "999px 999px 18px 18px" },
@@ -524,9 +520,9 @@ function makeTryOnPlan(variant = "default") {
     },
     {
       label: "Preview",
-      name: `${titleCase(style)} Photta Try-On`,
-      detail: "Widget",
-      actionText: "Open widget",
+      name: `${titleCase(style)} Wearo Try-On`,
+      detail: "API",
+      actionText: "Generate preview",
       shape: "layer",
       color: "#343a3f",
       artBg: "#f1f1ee",
@@ -539,12 +535,12 @@ function makeTryOnPlan(variant = "default") {
     title: `${titleCase(style)} Try-On Preview`,
     moment,
     source: "Try-on",
-    spend: "Widget",
+    spend: "API",
     items: outfitItems,
-    why: "This flow opens the Photta virtual try-on widget from inside the app. The user can try apparel without the app needing to own a custom try-on model.",
+    why: "This flow sends a full-length photo and one clothing image to a virtual try-on API, then shows the generated preview in the outfit cards.",
     next: photoAdded && clothingCount
-      ? `Open the Photta widget when ready. Notes: ${tryOnNotesInput.value || "realistic front-view preview"}.`
-      : "Open the Photta widget to complete the try-on flow. Local upload fields stay here as a portfolio UI backup.",
+      ? `Generate the try-on preview. Notes: ${tryOnNotesInput.value || "realistic front-view preview"}.`
+      : "Upload one full-length photo and at least one clothing photo to generate a try-on preview.",
   };
 }
 
@@ -607,117 +603,6 @@ function canUseBackend() {
   return window.location.protocol === "http:" || window.location.protocol === "https:";
 }
 
-async function publicConfig() {
-  if (!canUseBackend()) return {};
-  if (!publicConfigPromise) {
-    publicConfigPromise = fetch("/api/public-config")
-      .then((response) => (response.ok ? response.json() : {}))
-      .catch(() => ({}));
-  }
-  return publicConfigPromise;
-}
-
-function setTryOnWidgetStatus(message, isError = false) {
-  if (!tryOnWidgetStatus) return;
-  tryOnWidgetStatus.textContent = message;
-  tryOnWidgetStatus.dataset.state = isError ? "error" : "ready";
-}
-
-function findPhottaOpenFunction() {
-  const candidates = [
-    window.PhoTryOn,
-    window.PhottaTryOn,
-    window.PhottaWidget,
-    window.Photta,
-    window.photta,
-    window.phoTryOn,
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    if (typeof candidate.open === "function") return candidate.open.bind(candidate);
-    if (candidate.widget && typeof candidate.widget.open === "function") return candidate.widget.open.bind(candidate.widget);
-  }
-  return null;
-}
-
-function hasPhottaFrame() {
-  return Boolean(document.querySelector("iframe[src*='widget.photta.app']"));
-}
-
-function waitForPhottaFrame(timeoutMs = 2500) {
-  return new Promise((resolve) => {
-    if (hasPhottaFrame()) {
-      resolve(true);
-      return;
-    }
-
-    const observer = new MutationObserver(() => {
-      if (hasPhottaFrame()) {
-        observer.disconnect();
-        window.clearTimeout(timeout);
-        resolve(true);
-      }
-    });
-    const timeout = window.setTimeout(() => {
-      observer.disconnect();
-      resolve(false);
-    }, timeoutMs);
-
-    observer.observe(document.body, { childList: true, subtree: true });
-  });
-}
-
-async function loadPhottaEmbed() {
-  const config = await publicConfig();
-  if (!config.phottaWidgetKey) {
-    throw new Error("PHOTTA_WIDGET_KEY is missing");
-  }
-
-  if (!phottaEmbedPromise) {
-    phottaEmbedPromise = new Promise((resolve, reject) => {
-      const existing = document.querySelector("script[data-photta-widget='true']");
-      if (existing) {
-        resolve(config);
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.async = true;
-      script.src = "https://widget.photta.app/v1/embed.js";
-      script.dataset.phottaWidget = "true";
-      script.dataset.apiKey = config.phottaWidgetKey;
-      script.dataset.productType = config.phottaProductType || "apparel";
-      script.addEventListener("load", () => resolve(config), { once: true });
-      script.addEventListener("error", () => reject(new Error("Photta widget script failed to load")), { once: true });
-      document.head.appendChild(script);
-    });
-  }
-
-  return phottaEmbedPromise;
-}
-
-async function openTryOnWidget() {
-  if (!tryOnWidgetButton) return;
-  tryOnWidgetButton.disabled = true;
-  setTryOnWidgetStatus("Opening widget...");
-  try {
-    const config = await loadPhottaEmbed();
-    const openWidget = findPhottaOpenFunction();
-    if (openWidget) {
-      openWidget({ productType: config.phottaProductType || "apparel" });
-      setTryOnWidgetStatus("Widget opened");
-    } else if (await waitForPhottaFrame()) {
-      setTryOnWidgetStatus("Widget opened");
-    } else {
-      setTryOnWidgetStatus("Widget loaded. Check Photta domain settings if it does not appear.");
-    }
-  } catch (error) {
-    setTryOnWidgetStatus(error.message || "Widget unavailable", true);
-  } finally {
-    tryOnWidgetButton.disabled = false;
-  }
-}
-
 async function requestBackendPlan(variant = "default") {
   if (!canUseBackend()) return null;
   const payload = {
@@ -773,6 +658,8 @@ function renderItems(items) {
       const detail = item.detail || (item.price ? `$${item.price}` : "Already owned");
       const linkLabel = item.linkType === "merchant"
         ? "View store item"
+        : item.linkType === "tryon"
+          ? "Open try-on image"
         : item.image
           ? "View shopping result"
           : "Search item";
@@ -885,10 +772,6 @@ saveButton.addEventListener("click", () => {
 });
 
 resetButton.addEventListener("click", resetForm);
-tryOnWidgetButton?.addEventListener("click", openTryOnWidget);
 
 renderPlan(makePlan());
 renderSaved();
-publicConfig().then((config) => {
-  setTryOnWidgetStatus(config.phottaWidgetKey ? "Widget ready" : "Widget key needed", !config.phottaWidgetKey);
-});

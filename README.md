@@ -9,7 +9,7 @@ AI occasion stylist prototype for generating outfits from a user's closet, onlin
 - **My closet:** uses Gemini to choose a balanced outfit from typed wardrobe items and uploaded wardrobe photos, with local fallback if the API is unavailable.
 - **Stores:** searches for shoppable outfit pieces with product images, prices, and links when SerpAPI is connected.
 - **Colors:** suggests a personal color palette from undertone, contrast, hair depth, and jewelry preference.
-- **Try on me:** opens the Photta virtual try-on widget when a widget key is configured.
+- **Try on me:** sends a full-length photo and a clothing image to Wearo's Direct API, then shows the generated try-on preview.
 - **Saved looks:** saves generated looks locally in the browser.
 
 ## Run Locally
@@ -41,10 +41,9 @@ GEMINI_TIMEOUT_MS=12000
 
 SERPAPI_KEY=
 
-PHOTTA_WIDGET_KEY=
-PHOTTA_PRODUCT_TYPE=apparel
-PHOTTA_API_URL=
-PHOTTA_API_KEY=
+WEARO_API_KEY=
+WEARO_API_URL=https://api.wearo.io/v1/tryon
+PUBLIC_BASE_URL=
 
 PORT=8765
 ```
@@ -55,19 +54,27 @@ Never commit `.env`. It contains private API keys and is ignored by `.gitignore`
 
 - **Gemini:** AI closet selection from typed wardrobe items and uploaded wardrobe photos, plus optional styling copy in other modes.
 - **SerpAPI:** optional store search, product photos, prices, and links.
-- **Photta widget:** optional virtual try-on flow loaded from Photta's frontend SDK.
+- **Wearo:** optional virtual try-on generation from a person photo and a product image.
 - **Colors mode:** no API. It uses local color-theory rules.
 
-## Photta Widget Setup
+## Wearo Try-On Setup
 
-Photta provides a publishable widget key, not a backend URL. Add the key in Render as:
+Wearo uses a private backend API key. Add the key in Render as:
 
 ```env
-PHOTTA_WIDGET_KEY=your_pk_live_key
-PHOTTA_PRODUCT_TYPE=apparel
+WEARO_API_KEY=your_wearo_key
+WEARO_API_URL=https://api.wearo.io/v1/tryon
 ```
 
-In the Photta dashboard, add your deployed Render URL as an allowed domain. The app exposes the publishable key through `/api/public-config` and loads Photta's `embed.js` script only when the user clicks the try-on button.
+Wearo requires `userPhoto` and a public `productImageUrl`. The app accepts the user's clothing upload, saves it under an ignored `uploads/try-on/` folder, and sends its public URL to Wearo.
+
+For deployed testing, set `PUBLIC_BASE_URL` to your Render URL if Wearo cannot fetch the generated product image URL:
+
+```env
+PUBLIC_BASE_URL=https://your-render-app.onrender.com
+```
+
+Localhost try-on calls may fail because Wearo's server cannot fetch images from `http://localhost`. Test the full Wearo flow from the deployed Render URL or a public tunnel.
 
 ## How My Closet Mode Works
 
