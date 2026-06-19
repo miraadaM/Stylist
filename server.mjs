@@ -172,6 +172,10 @@ function isLocalBaseUrl(baseUrl = "") {
   }
 }
 
+function isPlaceholderBaseUrl(baseUrl = "") {
+  return /your-render-app|example\.com/i.test(baseUrl);
+}
+
 function escapeRegExp(text = "") {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -1152,6 +1156,14 @@ async function callTryOnProvider(payload, plan, context = {}) {
     ...plan,
     alerts: ["WEARO_API_KEY is missing, so this is still showing the demo try-on plan."],
   };
+  if (isPlaceholderBaseUrl(context.baseUrl)) return {
+    ...plan,
+    alerts: ["PUBLIC_BASE_URL is still a placeholder. Set it to your real Render URL before testing Wearo try-on."],
+  };
+  if (isLocalBaseUrl(context.requestBaseUrl) && process.env.PUBLIC_BASE_URL && !isLocalBaseUrl(context.baseUrl)) return {
+    ...plan,
+    alerts: ["You are testing from localhost while PUBLIC_BASE_URL points to Render. Test Wearo on the deployed Render site, or use a public tunnel that points to this local server."],
+  };
   if (isLocalBaseUrl(context.baseUrl) && !process.env.PUBLIC_BASE_URL) return {
     ...plan,
     alerts: ["Wearo needs a public product image URL. Test real try-on from Render or set PUBLIC_BASE_URL to a public tunnel while debugging locally."],
@@ -1330,19 +1342,21 @@ const server = createServer(async (req, res) => {
 
     if (req.method === "POST" && req.url === "/api/outfit-plan") {
       const payload = await readJson(req);
+      const requestUrl = requestBaseUrl(req);
       const baseUrl = process.env.PUBLIC_BASE_URL || requestBaseUrl(req);
-      const plan = await createOutfitPlan(payload, { baseUrl, origin: process.env.PUBLIC_BASE_URL || baseUrl });
+      const plan = await createOutfitPlan(payload, { baseUrl, requestBaseUrl: requestUrl, origin: process.env.PUBLIC_BASE_URL || baseUrl });
       json(res, 200, plan);
       return;
     }
 
     if (req.method === "POST" && req.url === "/api/try-on") {
       const payload = await readJson(req);
+      const requestUrl = requestBaseUrl(req);
       const baseUrl = process.env.PUBLIC_BASE_URL || requestBaseUrl(req);
       const plan = await callTryOnProvider(
         { ...payload, mode: "tryon" },
         fallbackPlan({ ...payload, mode: "tryon" }),
-        { baseUrl, origin: process.env.PUBLIC_BASE_URL || baseUrl },
+        { baseUrl, requestBaseUrl: requestUrl, origin: process.env.PUBLIC_BASE_URL || baseUrl },
       );
       json(res, 200, plan);
       return;
