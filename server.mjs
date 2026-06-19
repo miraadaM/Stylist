@@ -153,14 +153,25 @@ function dataUrlToImageBuffer(dataUrl = "") {
   };
 }
 
-async function saveTryOnProductImage(dataUrl = "", baseUrl = "") {
+async function saveTryOnImage(dataUrl = "", baseUrl = "", role = "image") {
   const image = dataUrlToImageBuffer(dataUrl);
   if (!image || !baseUrl) return "";
 
   await mkdir(tryOnUploadDir, { recursive: true });
-  const filename = `${Date.now()}-${randomUUID()}.${image.extension}`;
+  const safeRole = role.replace(/[^a-z0-9-]/gi, "").toLowerCase() || "image";
+  const filename = `${Date.now()}-${safeRole}-${randomUUID()}.${image.extension}`;
   await writeFile(join(tryOnUploadDir, filename), image.buffer);
   return `${baseUrl.replace(/\/$/, "")}/uploads/try-on/${filename}`;
+}
+
+function wearOClothingType(text = "") {
+  const normalized = text.toLowerCase();
+  if (hasKeyword(normalized, ["dress", "gown"])) return "Dress";
+  if (hasKeyword(normalized, ["jacket", "blazer", "coat", "cardigan"])) return "Jacket";
+  if (hasKeyword(normalized, ["shirt", "tee", "t-shirt", "top", "blouse", "sweater", "hoodie", "tank"])) return "T-shirt";
+  if (hasKeyword(normalized, ["skirt"])) return "Skirt";
+  if (hasKeyword(normalized, ["pants", "trousers", "jeans", "shorts"])) return "Pants";
+  return "T-shirt";
 }
 
 async function verifyPublicImageUrl(url = "") {
@@ -1203,7 +1214,27 @@ async function callTryOnProvider(payload, plan, context = {}) {
     alerts: ["Wearo needs a public product image URL. Test real try-on from Render or set PUBLIC_BASE_URL to a public tunnel while debugging locally."],
   };
 
-  const productImageUrl = await saveTryOnProductImage(payload.garmentImages[0], context.baseUrl);
+  const userPhotoUrl = await saveTryOnImage(payload.personImage, context.baseUrl, "person");
+  if (!userPhotoUrl) return {
+    ...plan,
+    alerts: ["The full-length photo could not be prepared for Wearo. Upload a PNG, JPG, JPEG, or WebP image."],
+  };
+  const userPhotoCheck = await verifyPublicImageUrl(userPhotoUrl);
+  if (!userPhotoCheck.ok) return {
+    ...plan,
+    alerts: [`Wearo needs a public full-length photo URL, but the generated URL was not reachable (${userPhotoCheck.status || userPhotoCheck.message || "failed"}). Check PUBLIC_BASE_URL and redeploy Render.`],
+    diagnostics: {
+      ...(plan.diagnostics || {}),
+      wearo: {
+        ok: false,
+        stage: "user-photo-url",
+        userPhotoHost: new URL(userPhotoUrl).host,
+        userPhotoStatus: userPhotoCheck.status,
+      },
+    },
+  };
+
+  const productImageUrl = await saveTryOnImage(payload.garmentImages[0], context.baseUrl, "garment");
   if (!productImageUrl) return {
     ...plan,
     alerts: ["The clothing image could not be prepared for Wearo. Upload a PNG, JPG, JPEG, or WebP image."],
@@ -1231,9 +1262,9 @@ async function callTryOnProvider(payload, plan, context = {}) {
       ...(context.origin ? { Origin: context.origin } : {}),
     },
     body: JSON.stringify({
-      userPhoto: payload.personImage,
+      userPhoto: userPhotoUrl,
       productImageUrl,
-      clothingType: payload.tryOnNotes || "apparel",
+      clothingType: wearOClothingType(payload.tryOnNotes),
     }),
   }, 30_000);
 
@@ -1243,6 +1274,7 @@ async function callTryOnProvider(payload, plan, context = {}) {
       providerStatus: response.status,
       providerStage: "wearo-api",
       providerBody: data,
+      userPhotoHost: new URL(userPhotoUrl).host,
       productImageHost: new URL(productImageUrl).host,
     });
   }
