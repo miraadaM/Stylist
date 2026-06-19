@@ -1306,8 +1306,9 @@ async function createOutfitPlan(payload, context = {}) {
   } catch (error) {
     if (payload.mode !== "tryon") throw error;
     const providerStage = error?.providerStage || "tryon";
+    const providerBody = error?.providerBody?.error || error?.providerBody?.message || "";
     const friendlyMessage = providerStage === "wearo-api"
-      ? `Wearo API rejected the request at ${wearoApiUrl}. Check WEARO_API_URL in Render and confirm the key has Direct API access.`
+      ? `${error.message || "Wearo API rejected the request."}${providerBody ? ` Wearo response: ${providerBody}.` : ""} Check WEARO_API_URL in Render and confirm the key has Direct API access.`
       : error.message || "Wearo try-on failed.";
     plan = {
       ...plan,
